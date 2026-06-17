@@ -1182,13 +1182,26 @@ if(wakeBtn){wakeBtn.onclick=()=>{wakeOn=!wakeOn;wakeBtn.classList.toggle("on",wa
  wakeBtn.textContent=wakeOn?"\u{1F399}️ Lexa: on":"\u{1F399}️ Lexa: off";
  if(wakeOn){ENGINE.start();vhint.textContent=LISTEN_MSG;}
  else{awake=false;setGlow(false);ENGINE.stop();vhint.textContent="Voice paused — toggle the mic button to resume.";}};}
-// pick engine: desktop app -> offline Vosk; web/real browser -> native Web Speech
+// iOS browsers (Safari + every "Chrome/Edge" on iPhone use WebKit) don't reliably support
+// Web Speech recognition -> no hands-free wake word there. And iOS blocks speech synthesis
+// until a user gesture, so we prime it on the first tap so Lexa can read answers aloud.
+const IOS=/iP(hone|od|ad)/.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+let ttsPrimed=false;
+function primeTTS(){if(ttsPrimed||!synth)return;ttsPrimed=true;try{const u=new SpeechSynthesisUtterance(" ");u.volume=0;synth.cancel();synth.speak(u);}catch(_){}}
+document.addEventListener("touchend",primeTTS,{passive:true});
+document.addEventListener("click",primeTTS);
+// pick the voice engine: desktop app -> offline Vosk; desktop browser -> native Web Speech
+const VOICE_OK=DESKTOP||(SR&&!IOS);
+wakeOn=VOICE_OK;
 if(DESKTOP)ENGINE=voskEngine();
-else if(SR)ENGINE=webSpeechEngine();
-else ENGINE={start(){vhint.textContent="\u{1F399}️ Voice needs Chrome or Edge — open this page there to talk to Lexa.";if(wakeBtn)wakeBtn.disabled=true;if(micBtn)micBtn.disabled=true;},stop(){},reset(){}};
-// hands-free: start listening on load — just say “Lexa”, no button press
-wakeOn=true;if(wakeBtn){wakeBtn.classList.add("on");wakeBtn.textContent="\u{1F399}️ Lexa: on";}
-vhint.textContent=LISTEN_MSG;ENGINE.start();
+else if(VOICE_OK)ENGINE=webSpeechEngine();
+else ENGINE={start(){vhint.textContent=IOS
+  ? "\u{1F4F1} iPhone browsers can't run the “Lexa” wake word. Type your question — tap \u{1F50A} Speak to hear her. (Hands-free voice works on desktop Chrome/Edge or the desktop app.)"
+  : "\u{1F399}️ The “Lexa” wake word needs desktop Chrome/Edge. You can type, and tap \u{1F50A} Speak to hear answers.";
+  if(wakeBtn){wakeBtn.disabled=true;wakeBtn.textContent="\u{1F399}️ Lexa: desktop";}if(micBtn)micBtn.disabled=true;},stop(){},reset(){}};
+// hands-free: start listening on load where supported — just say “Lexa”, no button press
+if(VOICE_OK){if(wakeBtn){wakeBtn.classList.add("on");wakeBtn.textContent="\u{1F399}️ Lexa: on";}vhint.textContent=LISTEN_MSG;}
+ENGINE.start();
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&wakeOn)ENGINE.start();});
 window.addEventListener("focus",()=>{if(wakeOn)ENGINE.start();});
 </script></body></html>""".replace("__CSS__", _CSS).replace("__CHATBG__", _page_bg_css())
