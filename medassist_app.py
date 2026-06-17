@@ -1191,7 +1191,7 @@ wakeOn=true;if(wakeBtn){wakeBtn.classList.add("on");wakeBtn.textContent="\u{1F39
 vhint.textContent=LISTEN_MSG;ENGINE.start();
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&wakeOn)ENGINE.start();});
 window.addEventListener("focus",()=>{if(wakeOn)ENGINE.start();});
-</script></body></html>""".replace("__CSS__", _CSS).replace("__CHATBG__", _page_bg_css()).replace("__DESKTOP__", "true" if getattr(sys, "frozen", False) else "false")
+</script></body></html>""".replace("__CSS__", _CSS).replace("__CHATBG__", _page_bg_css())
 
 DASH_HTML = r"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>LEXA - dashboard</title>
@@ -1230,9 +1230,15 @@ class ChatReq(BaseModel):
     query: str
 
 
+# True only when the UI is shown in the desktop WebView2 window (no browser Web Speech ->
+# use offline Vosk). When the app opens in a real browser (web demo, or the desktop launcher
+# opening Chrome/Edge), this stays False so the nicer native browser speech is used.
+IS_WEBVIEW = False
+
+
 @app.get("/")
 def page_index():
-    return HTMLResponse(CHAT_HTML)
+    return HTMLResponse(CHAT_HTML.replace("__DESKTOP__", "true" if IS_WEBVIEW else "false"))
 
 
 @app.get("/login")
@@ -1415,35 +1421,73 @@ def _serve():
                 loop="asyncio", http="h11", ws="websockets")
 
 
-def run_desktop():
-    """Native-window mode for the packaged desktop build (.exe).
+def _find_browser():
+    """Locate a Chromium browser (Chrome preferred, then Edge) for app-window mode."""
+    import os
+    cands = [
+        os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+        os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+    ]
+    for p in cands:
+        if os.path.exists(p):
+            return p
+    return None
 
-    Serves the app on a daemon thread and shows the UI in a native window via
-    pywebview - an OPTIONAL extra needed only for the desktop/exe build; the
-    core app still runs on fastapi+uvicorn+numpy alone. Closing the window ends
-    the process.
+
+def run_desktop():
+    """Desktop mode for the packaged build (.exe).
+
+    Serves the app on a daemon thread, then shows the UI in a real Chromium
+    browser **app window** (Chrome/Edge) so Lexa uses the browser's nice native
+    voice + speech recognition - the same great experience as the web demo. If no
+    Chrome/Edge is found, it falls back to a pywebview (WebView2) window, which
+    uses the bundled OFFLINE Vosk voice instead. Closing the window ends the app.
     """
     import os
     import sys
-    import threading
     import time
-    import urllib.error
+    import threading
+    import tempfile
+    import subprocess
+    global IS_WEBVIEW
     # frozen windowed builds have no console - keep stdout/stderr writable
     for _stream in ("stdout", "stderr"):
         if getattr(sys, _stream) is None:
             setattr(sys, _stream, open(os.devnull, "w"))
-    # let WebView2 use the microphone without a permission prompt (for voice / wake word)
-    os.environ.setdefault("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-                          "--use-fake-ui-for-media-stream")
-    import webview  # optional: pip install pywebview
     threading.Thread(target=_serve, daemon=True).start()
     base = f"http://{HOST}:{PORT}"
-    for _ in range(90):  # wait up to ~30s for the server to answer (be tolerant of slow first call)
+    for _ in range(90):  # wait up to ~30s for the server (tolerant of a slow first call)
         try:
             urllib.request.urlopen(base + "/v1/health", timeout=2)
             break
-        except Exception:  # URLError, TimeoutError/socket.timeout, OSError - just keep waiting
+        except Exception:  # URLError, TimeoutError/socket.timeout, OSError - keep waiting
             time.sleep(0.3)
+
+    browser = _find_browser()
+    if browser:  # preferred: real Chromium browser -> browser-native voice (like the web demo)
+        IS_WEBVIEW = False
+        profile = os.path.join(tempfile.gettempdir(), "lexa-app-profile")
+        args = [browser, f"--app={base}/login", f"--user-data-dir={profile}",
+                "--use-fake-ui-for-media-stream",  # auto-allow the mic (hands-free wake word)
+                "--no-first-run", "--no-default-browser-check", "--window-size=1200,880"]
+        t0 = time.time()
+        try:
+            subprocess.Popen(args).wait()  # block until the app window is closed
+        except Exception:
+            pass
+        if time.time() - t0 < 3:  # browser handed off to an existing instance: keep serving
+            while True:
+                time.sleep(3600)
+        return
+
+    # fallback: no Chrome/Edge installed -> native WebView2 window with OFFLINE Vosk voice
+    IS_WEBVIEW = True
+    os.environ.setdefault("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+                          "--use-fake-ui-for-media-stream")
+    import webview  # optional: pip install pywebview
     webview.create_window("LEXA - Lab EXplanation Assistant", base + "/login",
                           width=1180, height=820, min_size=(900, 640))
     webview.start()
