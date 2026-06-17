@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
-MedAssist - single-file local clinical decision-support chatbot.
+LEXA (MedAssist) - single-file local clinical decision-support chatbot.
+
+Copyright (c) 2026 Elodie Nguyen. All rights reserved.
+Provided publicly for evaluation/portfolio review only. No reuse, copying,
+modification or redistribution without the author's written permission. See LICENSE.
 
 WHAT IT IS
     A retrieval-grounded assistant for healthcare professionals. It answers ONLY
@@ -12,7 +16,7 @@ WHAT IT IS
 RUN
     pip install fastapi "uvicorn[standard]" numpy
     python medassist_app.py
-    open http://127.0.0.1:8000      (first-run login:  FreyaAdmin)
+    open http://127.0.0.1:8000      (demo login:  Freya / lexa-demo)
 
     Runs fully offline in "extractive" mode (no API key). To use a real model set
     env vars, e.g.:  PROVIDER=anthropic ANTHROPIC_API_KEY=sk-...  python medassist_app.py

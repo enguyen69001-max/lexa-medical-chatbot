@@ -140,5 +140,14 @@ CLAUDE.md            # engineering notes & invariants
 
 ## 👩‍💻 Author
 
-Built by **Freya — Elodie** as a portfolio project exploring grounded, safe, offline
-clinical AI. Not affiliated with any medical organisation; not for clinical use.
+Built by **Freya — Elodie Nguyen** as a portfolio project exploring grounded, safe,
+offline clinical AI. Not affiliated with any medical organisation; not for clinical use.
+
+## 📜 License & copyright
+
+**© 2026 Elodie Nguyen — All rights reserved.**
+
+This repository is public for **viewing and evaluation only** (portfolio / hiring review).
+Copying, reuse, modification, redistribution or commercial use of the code or assets —
+in whole or in part — is **not permitted without the author's prior written permission**.
+See [`LICENSE`](LICENSE) for the full notice (FR/EN).
