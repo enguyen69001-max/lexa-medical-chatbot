@@ -1113,30 +1113,27 @@ function speak(t){if(!synth)return;synth.cancel();synth.speak(utter(t));}
 if(!synth)speakBtn.style.display="none";
 speakBtn.onclick=()=>{speakOn=!speakOn;speakBtn.classList.toggle("on",speakOn);
  speakBtn.textContent=speakOn?"\u{1F50A} Speak: on":"\u{1F508} Speak: off";if(!speakOn&&synth)synth.cancel();};
-// ---- offline voice: mic capture (Web Audio) + streaming STT (Vosk over WebSocket) ----
+// ---- voice: browser Web Speech (web demo) OR offline Vosk-over-WebSocket (desktop app) ----
+const DESKTOP=__DESKTOP__;   // true only in the packaged desktop (WebView2) build
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 const vhint=document.getElementById("vhint");
-const LISTEN_MSG="\u{1F399}️ Listening… just say “Lexa” to wake her — no buttons needed. Speech is processed offline on your device.";
-const HAVE_MIC=!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia)&&!!window.WebSocket&&!!(window.AudioContext||window.webkitAudioContext);
-let voiceWS=null,voiceReady=false,sending=false,awake=false,wakeOn=true;
-let audioCtx=null,micStream=null,srcNode=null,procNode=null;
-function vsend(o){try{if(voiceWS&&voiceWS.readyState===1)voiceWS.send(JSON.stringify(o));}catch(_){}}
-function resetRec(){vsend({cmd:"reset"});}
-// “Lexa” is out-of-vocabulary in the compact offline model, which hears it as
-// “lexa/lex/lexus/like so/look so/leg so/alexa…”. Match those tolerantly so the
-// wake word works hands-free; the mic button stays a 100%-reliable trigger.
-const WAKE_RE=/(?:^|\b)(?:hey |ok |okay )?(?:a?lex(?:a|i|ie|y|us|ar)?|lex a|leksa|like so|look so|leg so|lik so|leg sa)\b/i;
+const LISTEN_MSG="\u{1F399}️ Listening… just say “Lexa” to wake her — no buttons needed.";
+let awake=false,wakeOn=true;
+let ENGINE={start(){},stop(){},reset(){}};
+// shared wake/dictation state machine (engine-agnostic: each engine feeds onVoiceText) ----
+const WAKE_RE=/(?:^|\b)(?:hey |ok |okay )?(?:a?lex(?:a|i|ie|y|us|ar)?|lex a|leksa|alexa|like so|look so|leg so|lik so|leg sa)\b/i;
 function afterWake(t){const mm=(t||"").match(WAKE_RE);return mm?t.slice(mm.index+mm[0].length).replace(/^[\s,.;:!?-]+/,"").trim():"";}
 function stripWake(t){const mm=(t||"").match(WAKE_RE);return mm?(t.slice(0,mm.index)+" "+t.slice(mm.index+mm[0].length)).replace(/\s+/g," ").trim():(t||"").trim();}
 function setGlow(on){document.querySelector(".orbsys")?.classList.toggle("awake",on);micBtn.classList.toggle("listening",on);}
 function enableSpeak(){if(!speakOn){speakOn=true;speakBtn.classList.add("on");speakBtn.textContent="\u{1F50A} Speak: on";}}
 let wakeTimer=null;
 function wakeGlow(greet){awake=true;setGlow(true);enableSpeak();
- if(greet){const g=utter("Yes, I'm listening");synth&&synth.cancel();synth&&synth.speak(g);}
+ if(greet){synth&&synth.cancel();synth&&synth.speak(utter("Yes, I'm listening"));}
  vhint.textContent="\u{1F399}️ Yes? I'm listening — ask your question.";
  clearTimeout(wakeTimer);wakeTimer=setTimeout(()=>{if(awake)sleepLexa();},14000);}
-function sleepLexa(){awake=false;setGlow(false);clearTimeout(wakeTimer);vhint.textContent=LISTEN_MSG;resetRec();}
+function sleepLexa(){awake=false;setGlow(false);clearTimeout(wakeTimer);vhint.textContent=LISTEN_MSG;ENGINE.reset();}
 function askVoice(q){q=(q||"").trim();if(!q)return;clearTimeout(wakeTimer);input.value=q;autosize();ask();
- awake=false;setGlow(false);setTimeout(()=>{vhint.textContent=LISTEN_MSG;resetRec();},600);}
+ awake=false;setGlow(false);setTimeout(()=>{vhint.textContent=LISTEN_MSG;ENGINE.reset();},600);}
 function onVoiceText(text,isFinal){text=(text||"").trim();if(!text||!wakeOn)return;
  if(awake){const q=stripWake(text);            // ignore the wake-word echo; wait for the real question
   if(!q){input.value="";return;}
@@ -1144,44 +1141,57 @@ function onVoiceText(text,isFinal){text=(text||"").trim();if(!text||!wakeOn)retu
  const wm=WAKE_RE.test(text);
  const shortCall=isFinal&&text.split(/\s+/).filter(Boolean).length<=2; // a brief utterance while idle = her name
  if(wm||shortCall){const after=wm?afterWake(text):"";
-  if(after){wakeGlow(false);resetRec();askVoice(after);}  // "Lexa, <question>" in one breath
-  else{wakeGlow(true);resetRec();}}}                       // just her name -> wake + greet, then listen
-function downsample(buf,inR,outR){if(outR>=inR)return buf;const ratio=inR/outR,n=Math.floor(buf.length/ratio),out=new Float32Array(n);
- for(let o=0;o<n;o++){const s=Math.floor(o*ratio),e=Math.floor((o+1)*ratio);let a=0,c=0;for(let j=s;j<e&&j<buf.length;j++){a+=buf[j];c++;}out[o]=c?a/c:(buf[s]||0);}return out;}
-function floatTo16(buf){const out=new Int16Array(buf.length);for(let i=0;i<buf.length;i++){let s=Math.max(-1,Math.min(1,buf[i]));out[i]=s<0?s*0x8000:s*0x7fff;}return out;}
-async function startAudio(){if(audioCtx)return;
- try{micStream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});}
- catch(e){vhint.textContent="Microphone blocked — allow mic access to use voice.";return;}
- audioCtx=new (window.AudioContext||window.webkitAudioContext)();try{await audioCtx.resume();}catch(_){}
- srcNode=audioCtx.createMediaStreamSource(micStream);procNode=audioCtx.createScriptProcessor(4096,1,1);
- srcNode.connect(procNode);procNode.connect(audioCtx.destination);
- procNode.onaudioprocess=ev=>{if(!sending)return;if(synth&&synth.speaking)return;if(!voiceWS||voiceWS.readyState!==1)return;
-  const inB=ev.inputBuffer.getChannelData(0);voiceWS.send(floatTo16(downsample(inB,audioCtx.sampleRate,16000)).buffer);};}
-function connectVoice(){if(!HAVE_MIC){if(micBtn)micBtn.disabled=true;if(wakeBtn)wakeBtn.disabled=true;vhint.textContent="Voice isn't supported in this browser.";return;}
- if(voiceWS&&(voiceWS.readyState===0||voiceWS.readyState===1))return;
- const p=location.protocol==="https:"?"wss":"ws";voiceWS=new WebSocket(p+"://"+location.host+"/v1/ws/voice?token="+encodeURIComponent(token));voiceWS.binaryType="arraybuffer";
- voiceWS.onmessage=ev=>{let d;try{d=JSON.parse(ev.data);}catch(_){return;}
-  if(d.type==="ready"){voiceReady=true;startAudio();if(wakeOn)sending=true;}
-  else if(d.type==="unavailable"){vhint.textContent="Offline voice model not found — reinstall the app to enable voice.";if(wakeBtn)wakeBtn.disabled=true;if(micBtn)micBtn.disabled=true;}
-  else if(d.type==="partial")onVoiceText(d.text,false);
-  else if(d.type==="final")onVoiceText(d.text,true);};
- voiceWS.onclose=()=>{voiceReady=false;if(wakeOn)setTimeout(connectVoice,1500);};
- voiceWS.onerror=()=>{};}
-if(!synth){}/* speak button handled above */
-micBtn.onclick=()=>{if(!HAVE_MIC)return;if(!voiceReady){connectVoice();}sending=true;wakeGlow(false);resetRec();};
+  if(after){wakeGlow(false);ENGINE.reset();askVoice(after);}   // "Lexa, <question>" in one breath
+  else{wakeGlow(true);ENGINE.reset();}}}                        // just her name -> wake + greet, then listen
+
+// --- Engine A: native browser Web Speech (used on the web demo / real browsers) ---
+function webSpeechEngine(){let rec=null,running=false;
+ return {start(){if(running||!SR)return;running=true;rec=new SR();rec.lang="en-US";rec.continuous=true;rec.interimResults=true;
+   rec.onresult=e=>{if(!wakeOn||(synth&&synth.speaking))return;const r=e.results[e.results.length-1];onVoiceText(r[0].transcript,r.isFinal);};
+   rec.onerror=ev=>{const er=ev&&ev.error;if(er==="not-allowed"||er==="service-not-allowed")vhint.textContent="\u{1F399}️ Microphone blocked — allow mic access, then reload the page.";};
+   rec.onend=()=>{if(running&&wakeOn){try{rec.start();}catch(_){}}};try{rec.start();}catch(_){}},
+  stop(){running=false;try{rec&&rec.stop();}catch(_){}},reset(){}};}
+
+// --- Engine B: offline Vosk over WebSocket (used in the desktop app / WebView2) ---
+function voskEngine(){let voiceWS=null,sending=false,audioCtx=null,micStream=null,srcNode=null,procNode=null;
+ const HAVE_MIC=!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia)&&!!window.WebSocket&&!!(window.AudioContext||window.webkitAudioContext);
+ function down(buf,inR,outR){if(outR>=inR)return buf;const ratio=inR/outR,n=Math.floor(buf.length/ratio),out=new Float32Array(n);
+  for(let o=0;o<n;o++){const s=Math.floor(o*ratio),e=Math.floor((o+1)*ratio);let a=0,c=0;for(let j=s;j<e&&j<buf.length;j++){a+=buf[j];c++;}out[o]=c?a/c:(buf[s]||0);}return out;}
+ function f16(buf){const out=new Int16Array(buf.length);for(let i=0;i<buf.length;i++){let s=Math.max(-1,Math.min(1,buf[i]));out[i]=s<0?s*0x8000:s*0x7fff;}return out;}
+ async function startAudio(){if(audioCtx)return;
+  try{micStream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});}
+  catch(e){vhint.textContent="Microphone blocked — allow mic access to use voice.";return;}
+  audioCtx=new (window.AudioContext||window.webkitAudioContext)();try{await audioCtx.resume();}catch(_){}
+  srcNode=audioCtx.createMediaStreamSource(micStream);procNode=audioCtx.createScriptProcessor(4096,1,1);
+  srcNode.connect(procNode);procNode.connect(audioCtx.destination);
+  procNode.onaudioprocess=ev=>{if(!sending||(synth&&synth.speaking)||!voiceWS||voiceWS.readyState!==1)return;
+   voiceWS.send(f16(down(ev.inputBuffer.getChannelData(0),audioCtx.sampleRate,16000)).buffer);};}
+ function connect(){if(voiceWS&&(voiceWS.readyState===0||voiceWS.readyState===1))return;
+  const p=location.protocol==="https:"?"wss":"ws";voiceWS=new WebSocket(p+"://"+location.host+"/v1/ws/voice?token="+encodeURIComponent(token));voiceWS.binaryType="arraybuffer";
+  voiceWS.onmessage=ev=>{let d;try{d=JSON.parse(ev.data);}catch(_){return;}
+   if(d.type==="ready"){startAudio();if(wakeOn)sending=true;}
+   else if(d.type==="unavailable"){vhint.textContent="Offline voice model not found.";if(wakeBtn)wakeBtn.disabled=true;if(micBtn)micBtn.disabled=true;}
+   else if(d.type==="partial")onVoiceText(d.text,false);else if(d.type==="final")onVoiceText(d.text,true);};
+  voiceWS.onclose=()=>{if(wakeOn)setTimeout(connect,1500);};voiceWS.onerror=()=>{};}
+ return {start(){if(!HAVE_MIC){if(micBtn)micBtn.disabled=true;if(wakeBtn)wakeBtn.disabled=true;vhint.textContent="Voice isn't supported here.";return;}sending=true;connect();
+   try{audioCtx&&audioCtx.resume();}catch(_){}},
+  stop(){sending=false;},reset(){try{if(voiceWS&&voiceWS.readyState===1)voiceWS.send(JSON.stringify({cmd:"reset"}));}catch(_){}}};}
+
+micBtn.onclick=()=>{ENGINE.start();wakeGlow(false);ENGINE.reset();};   // manual: dictate the next utterance now
 if(wakeBtn){wakeBtn.onclick=()=>{wakeOn=!wakeOn;wakeBtn.classList.toggle("on",wakeOn);
  wakeBtn.textContent=wakeOn?"\u{1F399}️ Lexa: on":"\u{1F399}️ Lexa: off";
- if(wakeOn){sending=true;connectVoice();vhint.textContent=LISTEN_MSG;}
- else{sending=false;awake=false;setGlow(false);vhint.textContent="Voice paused — toggle the mic button to resume.";}};}
-// hands-free: open the offline voice channel on load — just say “Lexa”, no button press
+ if(wakeOn){ENGINE.start();vhint.textContent=LISTEN_MSG;}
+ else{awake=false;setGlow(false);ENGINE.stop();vhint.textContent="Voice paused — toggle the mic button to resume.";}};}
+// pick engine: desktop app -> offline Vosk; web/real browser -> native Web Speech
+if(DESKTOP)ENGINE=voskEngine();
+else if(SR)ENGINE=webSpeechEngine();
+else ENGINE={start(){vhint.textContent="\u{1F399}️ Voice needs Chrome or Edge — open this page there to talk to Lexa.";if(wakeBtn)wakeBtn.disabled=true;if(micBtn)micBtn.disabled=true;},stop(){},reset(){}};
+// hands-free: start listening on load — just say “Lexa”, no button press
 wakeOn=true;if(wakeBtn){wakeBtn.classList.add("on");wakeBtn.textContent="\u{1F399}️ Lexa: on";}
-if(HAVE_MIC){vhint.textContent=LISTEN_MSG;connectVoice();
- const resume=()=>{try{audioCtx&&audioCtx.resume();}catch(_){}};
- document.addEventListener("click",resume,{once:true});
- document.addEventListener("visibilitychange",()=>{if(!document.hidden&&wakeOn)connectVoice();});
- window.addEventListener("focus",()=>{if(wakeOn)connectVoice();});}
-else{vhint.textContent="Voice isn't supported in this browser.";if(wakeBtn)wakeBtn.disabled=true;if(micBtn)micBtn.disabled=true;}
-</script></body></html>""".replace("__CSS__", _CSS).replace("__CHATBG__", _page_bg_css())
+vhint.textContent=LISTEN_MSG;ENGINE.start();
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&wakeOn)ENGINE.start();});
+window.addEventListener("focus",()=>{if(wakeOn)ENGINE.start();});
+</script></body></html>""".replace("__CSS__", _CSS).replace("__CHATBG__", _page_bg_css()).replace("__DESKTOP__", "true" if getattr(sys, "frozen", False) else "false")
 
 DASH_HTML = r"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>LEXA - dashboard</title>

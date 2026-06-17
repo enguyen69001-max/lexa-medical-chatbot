@@ -3,9 +3,10 @@
 This puts the **core** of LEXA online so anyone (recruiters!) can try it from a link,
 **no install**: grounded medical Q&A, source citations, and the safety guards.
 
-> The free web demo runs the offline "extractive" engine. The **conversation LLM**
-> (local Ollama) and **offline voice/STT** (Vosk) are desktop-only and are simply off in
-> the cloud — the app degrades gracefully.
+> The free web demo runs the offline "extractive" engine. **Voice works in the web demo**
+> using the browser's built-in speech (best in **Chrome/Edge**, needs mic permission):
+> say "Lexa" to wake her, and she reads answers aloud. The **conversation LLM** (local
+> Ollama) is desktop-only and is simply off in the cloud — the app degrades gracefully.
 >
 > **Demo login:** `Freya` / `lexa-demo`
 
