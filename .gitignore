@@ -1,0 +1,32 @@
+# ---- Build / packaging artifacts ----
+dist/
+build/
+*.spec
+__pycache__/
+*.pyc
+*.pyo
+
+# ---- Large binaries (don't version these) ----
+*.exe
+# ~68 MB offline speech model — see README to re-download
+vosk-model/
+
+# ---- Runtime data / logs ----
+# audit log (medassist_audit.jsonl) and any other JSONL data
+*.jsonl
+
+# ---- Local tooling / editor ----
+.claude/
+.vscode/
+.idea/
+.venv/
+venv/
+.DS_Store
+Thumbs.db
+
+# ---- Stray files accidentally created in the workspace ----
+'
+python -m PyInstaller*.txt
+_*.py
+_*.txt
+_*.wav
