@@ -1108,7 +1108,7 @@ function pickVoice(){if(!synth)return;const vs=synth.getVoices();if(!vs.length)r
  for(const n of pref){const m=(en.length?en:vs).find(v=>v.name.toLowerCase().includes(n.toLowerCase()));if(m){lexaVoice=m;return;}}
  lexaVoice=en.find(v=>/female|aria|jenny|zira|samantha|michelle|ava|eva/i.test(v.name))||en[0]||vs[0];}
 if(synth){pickVoice();synth.addEventListener("voiceschanged",pickVoice);}
-function utter(t){const u=new SpeechSynthesisUtterance(t);u.lang="en-US";if(lexaVoice)u.voice=lexaVoice;u.rate=1.3;u.pitch=0.82;return u;}
+function utter(t){const u=new SpeechSynthesisUtterance(t);u.lang="en-US";if(lexaVoice)u.voice=lexaVoice;u.rate=1.12;u.pitch=0.82;return u;}
 function speak(t){if(!synth)return;synth.cancel();synth.speak(utter(t));}
 if(!synth)speakBtn.style.display="none";
 speakBtn.onclick=()=>{speakOn=!speakOn;speakBtn.classList.toggle("on",speakOn);
