@@ -1,0 +1,9 @@
+# Core dependencies — the app runs fully offline with just these three.
+fastapi
+uvicorn[standard]
+numpy
+
+# Optional extras (NOT needed for the web demo):
+#   vosk        -> offline speech-to-text (desktop voice)
+#   pywebview   -> native desktop window
+#   pyinstaller -> build the standalone .exe
