@@ -53,11 +53,12 @@ all without an internet connection.
 
 ## 🖼️ Screenshots
 
-| Chat (grounded answer + sources) | Dashboard |
-|---|---|
-| _add `docs/chat.png`_ | <img src="dash_page.jpg" width="420"> |
+| Chat (grounded answer + sources) | Safety refusal | Dashboard |
+|---|---|---|
+| <img src="docs/chat.png" width="280"> | <img src="docs/refusal.png" width="280"> | <img src="docs/dashboard.png" width="280"> |
 
-> Tip: drop a couple of screenshots in a `docs/` folder and update the links above.
+> Screenshots live in [`docs/`](docs/) — see [`docs/README.md`](docs/README.md) for the
+> recommended shots and how to capture them.
 
 ---
 
